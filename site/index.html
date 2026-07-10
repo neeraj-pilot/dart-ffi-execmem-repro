@@ -6,7 +6,7 @@
     <title>Why a Flutter AOT app can trip GrapheneOS's DCL protection</title>
     <meta
       name="description"
-      content="An engineer-focused explanation of Dart FFI callback trampolines, Android executable-memory restrictions, and a controlled Cronet case study."
+      content="Why GrapheneOS blocks Dart's writable-to-executable callback trampoline, how Cronet reaches it, and where a fix can live."
     >
     <link
       rel="canonical"
@@ -18,7 +18,7 @@
     >
     <meta
       property="og:description"
-      content="Dart FFI callback trampolines, mprotect(EACCES), and a controlled Cronet case study."
+      content="What GrapheneOS blocks, why Dart FFI callbacks reach it, and how Cronet exposed the behavior."
     >
     <meta property="og:type" content="article">
     <meta
@@ -34,6 +34,7 @@
       <div class="shell header-inner">
         <a class="site-name" href="./">Dart FFI execmem investigation</a>
         <nav aria-label="Article sections">
+          <a href="#policy">GrapheneOS</a>
           <a href="#mechanism">Mechanism</a>
           <a href="#evidence">Evidence</a>
           <a href="#fixes">Fixes</a>
@@ -47,8 +48,9 @@
           <p class="eyebrow">Flutter · Dart FFI · Android</p>
           <h1>Why a Flutter AOT app can trip GrapheneOS's DCL protection</h1>
           <p class="subtitle">
-            A native-to-Dart callback can require a small executable trampoline
-            even when the application itself was compiled ahead of time.
+            GrapheneOS blocks an app from turning writable memory into executable
+            code. Dart uses that exact transition for some native callbacks—even
+            in an ahead-of-time compiled app.
           </p>
           <p class="meta">
             Verified <time datetime="2026-07-10">10 July 2026</time> · Android
@@ -66,24 +68,46 @@
           </nav>
         </header>
 
-        <section class="section shell" aria-labelledby="short-version">
-          <div class="lede-card">
-            <h2 id="short-version">The short version</h2>
-            <p>
-              Flutter release applications are AOT compiled, but AOT does not
-              remove every runtime adapter. When native code needs to call a Dart
-              function, the Dart VM exposes a native function pointer backed by a
-              small callback trampoline. On Android, the VM copies that trampoline
-              into writable memory and then asks the kernel to make the page
-              executable.
-            </p>
-            <p>
-              GrapheneOS can block this transition through its per-app
-              <strong>Dynamic code loading via memory</strong> restriction. The
-              kernel returns <code>EACCES</code>; the current Dart VM treats the
-              failed <code>mprotect</code> as fatal and aborts the process.
-            </p>
-          </div>
+        <section id="policy" class="section shell" aria-labelledby="policy-title">
+          <p class="section-kicker">GrapheneOS policy</p>
+          <h2 id="policy-title">What it blocks, and why</h2>
+          <p class="section-intro">
+            The relevant setting is <strong>Dynamic code loading from memory</strong>.
+            In this failure path, enforcement happens when Dart asks the kernel to
+            make a page containing runtime-written instructions executable.
+          </p>
+          <dl class="policy-grid">
+            <div>
+              <dt>What is blocked</dt>
+              <dd>
+                A writable memory page becoming executable through
+                <code>mprotect(..., PROT_EXEC)</code>. The denied call returns
+                <code>EACCES</code>.
+              </dd>
+            </div>
+            <div>
+              <dt>Why block it</dt>
+              <dd>
+                Restricting runtime code loading makes it harder to turn a memory
+                corruption bug—or a vulnerable JIT or plugin loader—into code
+                execution.
+              </dd>
+            </div>
+            <div>
+              <dt>Why Dart is caught</dt>
+              <dd>
+                Dart uses the same transition for a benign native-to-Dart callback
+                trampoline. The kernel sees memory permissions, not the intent of
+                the generated code.
+              </dd>
+            </div>
+          </dl>
+          <p class="policy-note">
+            GrapheneOS makes this a per-app compatibility choice and notifies the
+            user when loading is blocked. Its security rationale is documented in
+            the official
+            <a href="https://grapheneos.org/features#exploit-mitigations">exploit-mitigation overview</a>.
+          </p>
         </section>
 
         <section id="mechanism" class="section contrast" aria-labelledby="mechanism-title">
@@ -264,14 +288,48 @@
           <p class="section-kicker">Evidence and limits</p>
           <h2 id="sources-title">Sources</h2>
           <ul>
-            <li><a href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro/tree/v0.1.0">Tested reproduction snapshot v0.1.0</a></li>
-            <li><a href="https://github.com/ente/ente/issues/5723">Ente Auth field report #5723</a></li>
-            <li><a href="https://github.com/ente-io/ente/commit/d6ec6809c29d75f185a22c8690b0ad345fd6bd00">Ente Auth native Dio adapter change</a></li>
-            <li><a href="https://github.com/dart-lang/sdk/blob/475f448a716a7cc0ae4092835fb1466bf8324908/runtime/vm/ffi_callback_metadata.cc#L171-L223">Dart VM callback trampoline allocation</a></li>
-            <li><a href="https://github.com/dart-lang/http/blob/5d94ef52582867e077bf41c3fa20fb8b1d1d834e/pkgs/cronet_http/lib/src/jni/jni_bindings.dart#L70-L74">Cronet 1.9.0 generated JNI callback</a></li>
-            <li><a href="https://github.com/simolus3/drift/blob/bd7ccf0891e346ad17511fcb710464cf580b0ae7/drift/lib/src/sqlite3/database.dart#L107-L111">Drift native database initialization</a></li>
-            <li><a href="https://github.com/simolus3/sqlite3.dart/blob/1863455ba301a4ee01c9ce3623fdff6e8d7c522c/sqlite3/lib/src/ffi/bindings.dart#L1531-L1542">SQLite Dart callback bindings</a></li>
-            <li><a href="https://grapheneos.org/features#exploit-mitigations">GrapheneOS exploit-protection documentation</a></li>
+            <li>
+              <a href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro/tree/v0.1.0">Tested reproduction snapshot v0.1.0</a>
+              — the minimal callback, no-callback control, seccomp harness, and
+              isolated Cronet test used for this investigation.
+            </li>
+            <li>
+              <a href="https://github.com/ente/ente/issues/5723">Ente Auth field report #5723</a>
+              — the GrapheneOS report and tombstone that identified the
+              <code>mprotect(EACCES)</code> abort on Auth 4.3.5.
+            </li>
+            <li>
+              <a href="https://github.com/ente-io/ente/commit/d6ec6809c29d75f185a22c8690b0ad345fd6bd00">Ente Auth native Dio adapter change</a>
+              — the change that selected Dio's native Android adapter and thereby
+              introduced the Cronet callback path.
+            </li>
+            <li>
+              <a href="https://github.com/dart-lang/sdk/blob/475f448a716a7cc0ae4092835fb1466bf8324908/runtime/vm/ffi_callback_metadata.cc#L171-L223">Dart VM callback trampoline allocation</a>
+              — the VM source that copies callback trampoline instructions and
+              changes the page from writable to executable.
+            </li>
+            <li>
+              <a href="https://github.com/dart-lang/http/blob/5d94ef52582867e077bf41c3fa20fb8b1d1d834e/pkgs/cronet_http/lib/src/jni/jni_bindings.dart#L70-L74">Cronet 1.9.0 generated JNI callback</a>
+              — the generated binding that converts a Dart callback with
+              <code>Pointer.fromFunction</code>.
+            </li>
+            <li>
+              <a href="https://github.com/media-kit/media-kit/issues/1015">media_kit GrapheneOS report</a>
+              and <a href="https://github.com/media-kit/media-kit/pull/1022">its fallback</a>
+              — an independent occurrence of the same Dart callback behavior and
+              a package-level workaround.
+            </li>
+            <li>
+              <a href="https://github.com/simolus3/drift/blob/bd7ccf0891e346ad17511fcb710464cf580b0ae7/drift/lib/src/sqlite3/database.dart#L107-L111">Drift native database initialization</a>
+              and <a href="https://github.com/simolus3/sqlite3.dart/blob/1863455ba301a4ee01c9ce3623fdff6e8d7c522c/sqlite3/lib/src/ffi/bindings.dart#L1531-L1542">SQLite callback bindings</a>
+              — source-level evidence for a similar <code>NativeCallable</code>
+              path; this repository does not test it.
+            </li>
+            <li>
+              <a href="https://grapheneos.org/features#exploit-mitigations">GrapheneOS exploit-protection documentation</a>
+              — the threat model and per-app controls for restricting dynamic code
+              loading from memory and storage.
+            </li>
           </ul>
           <p>
             <a href="https://github.com/ente-io/ente/releases/tag/auth-v4.4.24">Ente Auth 4.4.24</a>,

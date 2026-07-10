@@ -1,33 +1,31 @@
 :root {
   color-scheme: light dark;
-  --bg: #f7f8f5;
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface-alt: #edf1ea;
-  --text: #172019;
-  --muted: #526057;
-  --line: #c9d1ca;
-  --accent: #176b45;
-  --accent-strong: #0b4c2e;
-  --danger: #9d2f2f;
-  --focus: #7c4dff;
-  --code: #e9ede8;
-  --shadow: 0 18px 60px rgb(18 42 27 / 8%);
+  --surface-alt: #f6f8fa;
+  --text: #1f2328;
+  --muted: #59636e;
+  --line: #d0d7de;
+  --accent: #0969da;
+  --accent-strong: #0550ae;
+  --danger: #cf222e;
+  --focus: #0969da;
+  --code: #eff2f5;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #101512;
-    --surface: #18201b;
-    --surface-alt: #202a23;
-    --text: #eef5ef;
-    --muted: #b4c0b7;
-    --line: #405047;
-    --accent: #7dd9a9;
-    --accent-strong: #b2f0ce;
-    --danger: #ffaaa3;
-    --focus: #c5a8ff;
-    --code: #263129;
-    --shadow: none;
+    --bg: #0d1117;
+    --surface: #0d1117;
+    --surface-alt: #161b22;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --line: #30363d;
+    --accent: #58a6ff;
+    --accent-strong: #79c0ff;
+    --danger: #ff7b72;
+    --focus: #58a6ff;
+    --code: #21262d;
   }
 }
 
@@ -45,7 +43,7 @@ body {
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 1rem;
-  line-height: 1.7;
+  line-height: 1.65;
 }
 
 a {
@@ -86,7 +84,7 @@ a:focus-visible,
 
 .site-header {
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  background: var(--bg);
 }
 
 .header-inner,
@@ -119,7 +117,7 @@ nav a {
 }
 
 .hero {
-  padding-block: clamp(4rem, 9vw, 7.5rem) clamp(3.5rem, 7vw, 6rem);
+  padding-block: clamp(3.5rem, 8vw, 6rem) clamp(3rem, 6vw, 5rem);
 }
 
 .eyebrow,
@@ -141,15 +139,15 @@ h3 {
 }
 
 h1 {
-  max-width: 15ch;
+  max-width: 18ch;
   margin-bottom: 1.5rem;
-  font-size: clamp(2.7rem, 7vw, 5.8rem);
+  font-size: clamp(2.5rem, 6vw, 4.7rem);
 }
 
 h2 {
   max-width: 24ch;
   margin-bottom: 1.25rem;
-  font-size: clamp(2rem, 4vw, 3.35rem);
+  font-size: clamp(1.8rem, 3.5vw, 2.8rem);
 }
 
 h3 {
@@ -188,14 +186,14 @@ li {
   justify-content: center;
   padding: 0.7rem 1rem;
   border: 1px solid var(--accent);
-  border-radius: 0.45rem;
+  border-radius: 0.3rem;
   font-weight: 750;
   text-decoration: none;
 }
 
 .button.primary {
   background: var(--accent-strong);
-  color: var(--bg);
+  color: var(--surface);
 }
 
 .button.secondary {
@@ -204,7 +202,7 @@ li {
 }
 
 .section {
-  padding-block: clamp(3.5rem, 7vw, 6.5rem);
+  padding-block: clamp(3rem, 6vw, 5rem);
 }
 
 .contrast {
@@ -212,17 +210,40 @@ li {
   border-block: 1px solid var(--line);
 }
 
-.lede-card {
-  padding: clamp(1.5rem, 4vw, 3rem);
-  border: 1px solid var(--line);
-  border-left: 0.45rem solid var(--accent);
-  border-radius: 0.7rem;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+.section-intro {
+  font-size: 1.08rem;
 }
 
-.lede-card p:last-child {
-  margin-bottom: 0;
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-block: 2rem 1.25rem;
+  padding: 1px;
+  background: var(--line);
+}
+
+.policy-grid div {
+  padding: 1.4rem;
+  background: var(--surface);
+}
+
+.policy-grid dt {
+  margin-bottom: 0.6rem;
+  color: var(--accent-strong);
+  font-weight: 750;
+}
+
+.policy-grid dd {
+  margin: 0;
+}
+
+.policy-note {
+  max-width: 72ch;
+  margin: 0;
+  padding: 1rem 1.15rem;
+  border-left: 0.25rem solid var(--accent);
+  background: var(--surface-alt);
 }
 
 code {
@@ -251,7 +272,7 @@ code {
 .fix-grid article {
   padding: 1.4rem;
   border: 1px solid var(--line);
-  border-radius: 0.55rem;
+  border-radius: 0.3rem;
   background: var(--surface);
 }
 
@@ -276,7 +297,7 @@ code {
   min-height: 5rem;
   padding: 0.7rem;
   border: 1px solid var(--line);
-  border-radius: 0.4rem;
+  border-radius: 0.25rem;
   background: var(--surface-alt);
   font-weight: 700;
   line-height: 1.3;
@@ -339,7 +360,7 @@ figcaption {
 }
 
 .sources li {
-  margin-bottom: 0.7rem;
+  margin-bottom: 1rem;
 }
 
 .site-footer {
@@ -352,6 +373,7 @@ figcaption {
 }
 
 @media (max-width: 54rem) {
+  .policy-grid,
   .evidence-grid,
   .fix-grid {
     grid-template-columns: 1fr;
