@@ -34,7 +34,6 @@
       <div class="shell header-inner">
         <a class="site-name" href="./">Dart FFI execmem investigation</a>
         <nav aria-label="Article sections">
-          <a href="#result">Result</a>
           <a href="#mechanism">Mechanism</a>
           <a href="#evidence">Evidence</a>
           <a href="#fixes">Fixes</a>
@@ -85,74 +84,6 @@
               failed <code>mprotect</code> as fatal and aborts the process.
             </p>
           </div>
-        </section>
-
-        <section id="result" class="section shell" aria-labelledby="result-title">
-          <p class="section-kicker">Controlled result</p>
-          <h2 id="result-title">The callback is the differentiating variable</h2>
-          <p>
-            The harness installs a six-instruction ARM64 seccomp filter that
-            rejects only <code>mprotect</code> calls requesting
-            <code>PROT_EXEC</code>. It models the relevant kernel response, not
-            GrapheneOS's complete implementation.
-          </p>
-
-          <div class="table-wrap" tabindex="0">
-            <table>
-              <caption>Release-mode observations on an Android API 34 ARM64 emulator</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Policy</th>
-                  <th scope="col">Trigger</th>
-                  <th scope="col">Observation</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Allowed</td>
-                  <td><code>Pointer.fromFunction</code></td>
-                  <td><span class="outcome ok">Runs</span> Callback returns 42</td>
-                </tr>
-                <tr>
-                  <td>Targeted denial</td>
-                  <td>No callback</td>
-                  <td><span class="outcome ok">Runs</span> Flutter stays alive</td>
-                </tr>
-                <tr>
-                  <td>Targeted denial</td>
-                  <td><code>Pointer.fromFunction</code></td>
-                  <td><span class="outcome abort">Aborts</span> <code>mprotect</code> returns EACCES</td>
-                </tr>
-                <tr>
-                  <td>Targeted denial</td>
-                  <td><code>NativeCallable.isolateLocal</code></td>
-                  <td><span class="outcome abort">Aborts</span> Same VM error</td>
-                </tr>
-                <tr>
-                  <td>Allowed</td>
-                  <td>Cronet 1.9.0 loopback request</td>
-                  <td><span class="outcome ok">Runs</span> Receives HTTP 204</td>
-                </tr>
-                <tr>
-                  <td>Targeted denial</td>
-                  <td>Cronet 1.9.0 loopback request</td>
-                  <td><span class="outcome abort">Aborts</span> Same VM error</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <figure class="crash-signature">
-            <figcaption>Sanitized crash signature</figcaption>
-            <pre><code>error: mprotect failed: 13 (Permission denied)
-signal 6 (SIGABRT)
-Abort message: '...virtual_memory_posix.cc: ... mprotect failed: 13...'</code></pre>
-          </figure>
-          <p class="note">
-            The VM source line changed from 428 in the field report to 905 in the
-            tested Dart release. The error and denied operation are the stable
-            signature.
-          </p>
         </section>
 
         <section id="mechanism" class="section contrast" aria-labelledby="mechanism-title">
@@ -227,9 +158,9 @@ Abort message: '...virtual_memory_posix.cc: ... mprotect failed: 13...'</code></
             the same VM path as the dependency-free reproduction.
           </p>
           <p>
-            Cronet 1.9.0 appears in the table only because it is the version used
-            by the controlled test. This investigation is not rebutting a claim
-            from Cronet maintainers about executable-memory restrictions.
+            Cronet 1.9.0 is named only because it is the version used by the
+            controlled test. This investigation is not rebutting a claim from
+            Cronet maintainers about executable-memory restrictions.
           </p>
 
           <div class="evidence-grid">
