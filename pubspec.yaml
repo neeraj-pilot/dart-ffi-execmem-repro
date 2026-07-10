@@ -1,0 +1,16 @@
+name: dart_ffi_execmem_repro
+description: Minimal Android reproduction of Dart FFI callback executable-memory requirements.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.9
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
