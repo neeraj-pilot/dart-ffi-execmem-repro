@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'site/**'
+      - 'pa11y.json'
       - '.github/workflows/pages.yml'
   push:
     branches: [main]
     paths:
       - 'site/**'
+      - 'pa11y.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
