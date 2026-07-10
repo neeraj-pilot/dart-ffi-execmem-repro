@@ -1,0 +1,65 @@
+name: Flutter validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Flutter 3.38.10
+        run: |
+          git clone --depth 1 --branch 3.38.10 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve dependencies
+        run: |
+          flutter config --no-analytics
+          flutter pub get
+          (cd cronet_repro && flutter pub get)
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib cronet_repro/lib
+
+      - name: Analyze
+        run: |
+          flutter analyze
+          (cd cronet_repro && flutter analyze)
+
+      - name: Build dependency-free targets
+        run: |
+          flutter build apk --release --target-platform android-arm64 --target lib/main.dart
+          flutter build apk --release --target-platform android-arm64 --target lib/control_main.dart
+          flutter build apk --release --target-platform android-arm64 --target lib/harness_main.dart --dart-define=DENY_EXECMEM=true --dart-define=CALLBACK_API=pointer
+          flutter build apk --release --target-platform android-arm64 --target lib/harness_main.dart --dart-define=DENY_EXECMEM=true --dart-define=CALLBACK_API=native
+
+      - name: Verify the root APK has no Cronet or JNI bridge
+        run: |
+          if unzip -l build/app/outputs/flutter-apk/app-release.apk | grep --extended-regexp --ignore-case 'dartjni|cronet|play-services'; then
+            exit 1
+          fi
+
+      - name: Build isolated Cronet targets
+        working-directory: cronet_repro
+        run: |
+          flutter build apk --release --target-platform android-arm64 --dart-define=DENY_EXECMEM=false --dart-define=cronetHttpNoPlay=true
+          flutter build apk --release --target-platform android-arm64 --dart-define=DENY_EXECMEM=true --dart-define=cronetHttpNoPlay=true
