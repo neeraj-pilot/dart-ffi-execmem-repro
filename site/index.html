@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Why a Flutter AOT app can trip GrapheneOS's DCL protection</title>
+    <meta
+      name="description"
+      content="An engineer-focused explanation of Dart FFI callback trampolines, Android executable-memory restrictions, and a controlled Cronet case study."
+    >
+    <link
+      rel="canonical"
+      href="https://neeraj-pilot.github.io/dart-ffi-execmem-repro/"
+    >
+    <meta
+      property="og:title"
+      content="Why a Flutter AOT app can trip GrapheneOS's DCL protection"
+    >
+    <meta
+      property="og:description"
+      content="Dart FFI callback trampolines, mprotect(EACCES), and a controlled Cronet case study."
+    >
+    <meta property="og:type" content="article">
+    <meta
+      property="og:url"
+      content="https://neeraj-pilot.github.io/dart-ffi-execmem-repro/"
+    >
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to article</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="site-name" href="./">Dart FFI execmem investigation</a>
+        <nav aria-label="Article sections">
+          <a href="#result">Result</a>
+          <a href="#mechanism">Mechanism</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#fixes">Fixes</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <article>
+        <header class="hero shell">
+          <p class="eyebrow">Flutter · Dart FFI · Android</p>
+          <h1>Why a Flutter AOT app can trip GrapheneOS's DCL protection</h1>
+          <p class="subtitle">
+            A native-to-Dart callback can require a small executable trampoline
+            even when the application itself was compiled ahead of time.
+          </p>
+          <p class="meta">
+            Verified <time datetime="2026-07-10">10 July 2026</time> · Android
+            ARM64 · Flutter 3.38.10 · Dart 3.10.9
+          </p>
+          <nav class="actions" aria-label="Project links">
+            <a
+              class="button primary"
+              href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro"
+            >View repository</a>
+            <a
+              class="button secondary"
+              href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro/blob/v0.1.0/README.md"
+            >Run the reproduction</a>
+          </nav>
+        </header>
+
+        <section class="section shell" aria-labelledby="short-version">
+          <div class="lede-card">
+            <h2 id="short-version">The short version</h2>
+            <p>
+              Flutter release applications are AOT compiled, but AOT does not
+              remove every runtime adapter. When native code needs to call a Dart
+              function, the Dart VM exposes a native function pointer backed by a
+              small callback trampoline. On Android, the VM copies that trampoline
+              into writable memory and then asks the kernel to make the page
+              executable.
+            </p>
+            <p>
+              GrapheneOS can block this transition through its per-app
+              <strong>Dynamic code loading via memory</strong> restriction. The
+              kernel returns <code>EACCES</code>; the current Dart VM treats the
+              failed <code>mprotect</code> as fatal and aborts the process.
+            </p>
+          </div>
+        </section>
+
+        <section id="result" class="section shell" aria-labelledby="result-title">
+          <p class="section-kicker">Controlled result</p>
+          <h2 id="result-title">The callback is the differentiating variable</h2>
+          <p>
+            The harness installs a six-instruction ARM64 seccomp filter that
+            rejects only <code>mprotect</code> calls requesting
+            <code>PROT_EXEC</code>. It models the relevant kernel response, not
+            GrapheneOS's complete implementation.
+          </p>
+
+          <div class="table-wrap" tabindex="0">
+            <table>
+              <caption>Release-mode observations on an Android API 34 ARM64 emulator</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Policy</th>
+                  <th scope="col">Trigger</th>
+                  <th scope="col">Observation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Allowed</td>
+                  <td><code>Pointer.fromFunction</code></td>
+                  <td><span class="outcome ok">Runs</span> Callback returns 42</td>
+                </tr>
+                <tr>
+                  <td>Targeted denial</td>
+                  <td>No callback</td>
+                  <td><span class="outcome ok">Runs</span> Flutter stays alive</td>
+                </tr>
+                <tr>
+                  <td>Targeted denial</td>
+                  <td><code>Pointer.fromFunction</code></td>
+                  <td><span class="outcome abort">Aborts</span> <code>mprotect</code> returns EACCES</td>
+                </tr>
+                <tr>
+                  <td>Targeted denial</td>
+                  <td><code>NativeCallable.isolateLocal</code></td>
+                  <td><span class="outcome abort">Aborts</span> Same VM error</td>
+                </tr>
+                <tr>
+                  <td>Allowed</td>
+                  <td>Cronet 1.9.0 loopback request</td>
+                  <td><span class="outcome ok">Runs</span> Receives HTTP 204</td>
+                </tr>
+                <tr>
+                  <td>Targeted denial</td>
+                  <td>Cronet 1.9.0 loopback request</td>
+                  <td><span class="outcome abort">Aborts</span> Same VM error</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <figure class="crash-signature">
+            <figcaption>Sanitized crash signature</figcaption>
+            <pre><code>error: mprotect failed: 13 (Permission denied)
+signal 6 (SIGABRT)
+Abort message: '...virtual_memory_posix.cc: ... mprotect failed: 13...'</code></pre>
+          </figure>
+          <p class="note">
+            The VM source line changed from 428 in the field report to 905 in the
+            tested Dart release. The error and denied operation are the stable
+            signature.
+          </p>
+        </section>
+
+        <section id="mechanism" class="section contrast" aria-labelledby="mechanism-title">
+          <div class="shell">
+            <p class="section-kicker">The missing distinction</p>
+            <h2 id="mechanism-title">Calling native code is not the same as being called by it</h2>
+            <p>
+              Ordinary Dart-to-native calls jump to machine code already present
+              in a loaded library. A native-to-Dart callback has a different
+              problem: the native caller only knows how to invoke a machine-code
+              address, while the destination is managed by the Dart VM.
+            </p>
+
+            <figure class="flow-comparison" aria-labelledby="flow-caption">
+              <div class="flow-grid">
+                <section class="flow-lane" aria-labelledby="outbound-title">
+                  <h3 id="outbound-title">Ordinary outbound FFI call</h3>
+                  <ol class="flow-list">
+                    <li>Dart code</li>
+                    <li>Existing native function</li>
+                  </ol>
+                  <p>No callback trampoline is required.</p>
+                </section>
+                <section class="flow-lane problem" aria-labelledby="inbound-title">
+                  <h3 id="inbound-title">Native-to-Dart callback</h3>
+                  <ol class="flow-list">
+                    <li>Java or native event</li>
+                    <li>C-compatible function pointer</li>
+                    <li>Dart VM trampoline</li>
+                    <li>Dart callback</li>
+                  </ol>
+                  <p>The trampoline adapts the native ABI call to Dart dispatch.</p>
+                </section>
+              </div>
+              <figcaption id="flow-caption">
+                Only the native-to-Dart path demonstrated here instantiates the
+                executable callback trampoline.
+              </figcaption>
+            </figure>
+
+            <h3>Where the failure occurs</h3>
+            <ol class="mechanism-steps">
+              <li>The Dart VM allocates a non-executable trampoline page.</li>
+              <li>It copies the prebuilt trampoline instructions into that page.</li>
+              <li>It requests read/execute protection with <code>mprotect</code>.</li>
+              <li>GrapheneOS's restricted policy returns <code>EACCES</code>.</li>
+              <li>The VM reports a fatal error and sends SIGABRT.</li>
+            </ol>
+            <aside class="callout">
+              <strong>This is not application JIT compilation.</strong> The Dart
+              callback body remains AOT compiled. The runtime operation creates an
+              adapter that lets native code enter the VM correctly.
+            </aside>
+          </div>
+        </section>
+
+        <section id="evidence" class="section shell" aria-labelledby="evidence-title">
+          <p class="section-kicker">Case study</p>
+          <h2 id="evidence-title">How Cronet exposed the behavior in Ente Auth</h2>
+          <p>
+            <a href="https://github.com/ente/ente/issues/5723">Ente issue #5723</a>
+            reports that Auth stopped launching on GrapheneOS when DCL via memory
+            was restricted. The last working release preceded Ente's
+            <a href="https://github.com/ente-io/ente/commit/d6ec6809c29d75f185a22c8690b0ad345fd6bd00">adoption of the Android native Dio adapter</a>,
+            which routes requests through Cronet and first shipped in
+            <a href="https://github.com/ente/ente/releases/tag/auth-v4.3.5">Auth 4.3.5</a>.
+          </p>
+          <p>
+            Cronet reports headers, data, completion, and failures through Java
+            callbacks. Its generated JNI proxy exposes a Dart callback as a native
+            function pointer using <code>Pointer.fromFunction</code>. That reaches
+            the same VM path as the dependency-free reproduction.
+          </p>
+          <p>
+            Cronet 1.9.0 appears in the table only because it is the version used
+            by the controlled test. This investigation is not rebutting a claim
+            from Cronet maintainers about executable-memory restrictions.
+          </p>
+
+          <div class="evidence-grid">
+            <article class="evidence-card">
+              <h3>Field evidence</h3>
+              <p>
+                Ente Auth 4.3.5 on GrapheneOS produced the same
+                <code>mprotect(EACCES)</code> abort when the per-app restriction was
+                enabled.
+              </p>
+            </article>
+            <article class="evidence-card">
+              <h3>Controlled evidence</h3>
+              <p>
+                Independently denying only executable <code>mprotect</code> requests
+                reproduces the abort, while the no-callback app remains alive.
+              </p>
+            </article>
+            <article class="evidence-card">
+              <h3>Source correlation</h3>
+              <p>
+                Current Dart VM source performs the RW-to-RX transition, and the
+                tested Cronet binding still constructs the callback function
+                pointer through Dart FFI.
+              </p>
+            </article>
+          </div>
+
+          <h3>This pattern is broader than Cronet</h3>
+          <p>
+            The trigger is the callback API, not networking. The
+            <a href="https://github.com/media-kit/media-kit/issues/1015">media_kit project documented the same Dart VM behavior</a>
+            and added an
+            <a href="https://github.com/media-kit/media-kit/pull/1022">isolate-based fallback</a>.
+            <a href="https://github.com/simolus3/drift/blob/bd7ccf0891e346ad17511fcb710464cf580b0ae7/drift/lib/src/sqlite3/database.dart#L107-L111">Drift's native SQLite backend registers Dart SQL functions</a>,
+            and the
+            <a href="https://github.com/simolus3/sqlite3.dart/blob/1863455ba301a4ee01c9ce3623fdff6e8d7c522c/sqlite3/lib/src/ffi/bindings.dart#L1531-L1542">SQLite binding exposes those functions through <code>NativeCallable</code></a>.
+            That makes it a candidate for the same mechanism, but this repository
+            does not test SQLite.
+            None of this means every native Flutter package is affected:
+            packages using platform channels, precompiled bridges, or only
+            Dart-to-native FFI calls may avoid this path entirely.
+          </p>
+        </section>
+
+        <section id="fixes" class="section contrast" aria-labelledby="fixes-title">
+          <div class="shell">
+            <p class="section-kicker">Engineering options</p>
+            <h2 id="fixes-title">The fix can live at three layers</h2>
+            <div class="fix-grid">
+              <article>
+                <p class="number">01</p>
+                <h3>Application workaround</h3>
+                <p>
+                  Select a backend that avoids the callback bridge. For Ente Auth,
+                  that could mean Dio's <code>dart:io</code> adapter on Android
+                  instead of the native Cronet adapter.
+                </p>
+              </article>
+              <article>
+                <p class="number">02</p>
+                <h3>Package-level bridge</h3>
+                <p>
+                  Use a precompiled JNI/native bridge, platform channels, native
+                  ports, or polling where the native API permits it. This is
+                  contained but package-specific.
+                </p>
+              </article>
+              <article>
+                <p class="number">03</p>
+                <h3>Dart VM strategy</h3>
+                <p>
+                  Provide Android AOT callback stubs or dispatch that does not
+                  require a runtime writable-to-executable transition. This is the
+                  systemic and most complex option.
+                </p>
+              </article>
+            </div>
+            <p class="note">
+              Allowing DCL via memory is a user compatibility setting, not an
+              engineering fix. It disables a hardening policy the user deliberately
+              selected.
+            </p>
+          </div>
+        </section>
+
+        <section class="section shell" aria-labelledby="diagnose-title">
+          <p class="section-kicker">For Flutter engineers</p>
+          <h2 id="diagnose-title">A practical diagnostic checklist</h2>
+          <ol class="checklist">
+            <li>Reproduce with a release build so debug JIT does not confuse the signal.</li>
+            <li>Look for <code>mprotect failed: 13</code> in the native tombstone.</li>
+            <li>Bisect the dependency or backend change that introduced the crash.</li>
+            <li>Search source and generated bindings for <code>Pointer.fromFunction</code> and <code>NativeCallable</code>.</li>
+            <li>Run a no-callback negative control under the same restriction.</li>
+            <li>Do not blame Flutter generally just because the fatal check lives in <code>libflutter.so</code>.</li>
+          </ol>
+        </section>
+
+        <section class="section shell sources" aria-labelledby="sources-title">
+          <p class="section-kicker">Evidence and limits</p>
+          <h2 id="sources-title">Sources</h2>
+          <ul>
+            <li><a href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro/tree/v0.1.0">Tested reproduction snapshot v0.1.0</a></li>
+            <li><a href="https://github.com/ente/ente/issues/5723">Ente Auth field report #5723</a></li>
+            <li><a href="https://github.com/ente-io/ente/commit/d6ec6809c29d75f185a22c8690b0ad345fd6bd00">Ente Auth native Dio adapter change</a></li>
+            <li><a href="https://github.com/dart-lang/sdk/blob/475f448a716a7cc0ae4092835fb1466bf8324908/runtime/vm/ffi_callback_metadata.cc#L171-L223">Dart VM callback trampoline allocation</a></li>
+            <li><a href="https://github.com/dart-lang/http/blob/5d94ef52582867e077bf41c3fa20fb8b1d1d834e/pkgs/cronet_http/lib/src/jni/jni_bindings.dart#L70-L74">Cronet 1.9.0 generated JNI callback</a></li>
+            <li><a href="https://github.com/simolus3/drift/blob/bd7ccf0891e346ad17511fcb710464cf580b0ae7/drift/lib/src/sqlite3/database.dart#L107-L111">Drift native database initialization</a></li>
+            <li><a href="https://github.com/simolus3/sqlite3.dart/blob/1863455ba301a4ee01c9ce3623fdff6e8d7c522c/sqlite3/lib/src/ffi/bindings.dart#L1531-L1542">SQLite Dart callback bindings</a></li>
+            <li><a href="https://grapheneos.org/features#exploit-mitigations">GrapheneOS exploit-protection documentation</a></li>
+          </ul>
+          <p>
+            <a href="https://github.com/ente-io/ente/releases/tag/auth-v4.4.24">Ente Auth 4.4.24</a>,
+            published 6 July 2026, was inspected rather than run on a physical
+            GrapheneOS device during this investigation. Its
+            <a href="https://github.com/ente-io/ente/blob/a621d733154a834f23754e7e874de769be532d9d/mobile/packages/network/lib/network.dart#L82-L83">pinned source still selects <code>NativeAdapter</code></a>.
+            The current-release conclusion is therefore source/APK inference
+            combined with the controlled Cronet 1.9.0 test, not a new
+            physical-device observation.
+          </p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <p>MIT licensed · Evidence verified 10 July 2026</p>
+        <a href="https://github.com/neeraj-pilot/dart-ffi-execmem-repro">Repository</a>
+      </div>
+    </footer>
+  </body>
+</html>
